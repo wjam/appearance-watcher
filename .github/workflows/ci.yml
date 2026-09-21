@@ -1,0 +1,117 @@
+name: CI
+permissions:
+  contents: read
+
+on:
+  push: {}
+
+concurrency: # Avoid needlessly continuing the workflow when there's a newer commit
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate GitHub Actions
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: 'false'
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          advanced-security: 'false'
+          persona: auditor
+          annotations: 'true'
+
+  build:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - "macos-26"
+          - "ubuntu-26.04"
+
+    steps:
+      - name: Install desktop portal dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y weston xdg-desktop-portal xdg-desktop-portal-gnome
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: 'false'
+
+      - name: Setup go environment
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: 'go.mod'
+          cache-dependency-path: '**/go.sum'
+
+      - name: Start headless Wayland session
+        if: runner.os == 'Linux'
+        run: |
+          # Run weston directly rather than as a systemd unit: the portal backends'
+          # own systemd services are BindsTo=graphical-session.target, which refuses
+          # manual activation (it's only ever started by a real logind graphical
+          # session). Running everything as plain background processes sidesteps
+          # that dependency chain entirely.
+          weston --backend=headless-backend.so --socket=wayland-ci --idle-time=0 \
+            > "${RUNNER_TEMP}/weston.log" 2>&1 &
+          disown
+
+          for i in $(seq 1 10); do
+            [ -S "${XDG_RUNTIME_DIR}/wayland-ci" ] && break
+            sleep 1
+          done
+          if [ ! -S "${XDG_RUNTIME_DIR}/wayland-ci" ]; then
+            echo "::error::weston never created its Wayland socket"
+            echo "::group::weston.log"
+            cat "${RUNNER_TEMP}/weston.log" || true
+            echo "::endgroup::"
+            exit 1
+          fi
+
+          {
+            echo "WAYLAND_DISPLAY=wayland-ci"
+            echo "XDG_SESSION_TYPE=wayland"
+            echo "XDG_CURRENT_DESKTOP=ubuntu:GNOME"
+          } >> "$GITHUB_ENV"
+
+      - name: Start desktop portal
+        if: runner.os == 'Linux'
+        run: |
+          # Launch the portal backend and main daemon directly instead of via their
+          # systemd/D-Bus-activation units, for the same reason as the previous step.
+          /usr/libexec/xdg-desktop-portal-gnome > "${RUNNER_TEMP}/portal-gnome.log" 2>&1 &
+          disown
+          /usr/libexec/xdg-desktop-portal > "${RUNNER_TEMP}/portal.log" 2>&1 &
+          disown
+
+          # Wait for the Settings portal to actually answer before running tests against it.
+          for i in $(seq 1 10); do
+            if gdbus call --session --dest org.freedesktop.portal.Desktop \
+              --object-path /org/freedesktop/portal/desktop \
+              --method org.freedesktop.portal.Settings.Read org.freedesktop.appearance color-scheme \
+              >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::xdg-desktop-portal never answered Settings.Read"
+          echo "::group::xdg-desktop-portal-gnome log"
+          cat "${RUNNER_TEMP}/portal-gnome.log" || true
+          echo "::endgroup::"
+          echo "::group::xdg-desktop-portal log"
+          cat "${RUNNER_TEMP}/portal.log" || true
+          echo "::endgroup::"
+          exit 1
+
+      - name: Test
+        run: go run ./build -v
