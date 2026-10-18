@@ -17,11 +17,7 @@ var whyDeadCode = goyek.Define(goyek.Task{
 		if err != nil {
 			a.Fatal(err)
 		}
-		cmd.Exec(
-			a,
-			"go run -modfile=./tools/whydeadcode/go.mod github.com/aarzilli/whydeadcode -fail",
-			cmd.Stdin(bytes.NewBuffer(deps)),
-		)
+		cmd.Exec(a, "go tool -modfile=./tools/whydeadcode/go.mod whydeadcode -fail", cmd.Stdin(bytes.NewBuffer(deps)))
 
 	},
 	Deps: []*goyek.DefinedTask{goBuild},
