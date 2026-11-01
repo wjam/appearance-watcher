@@ -3,7 +3,7 @@ module github.com/wjam/appearance-watcher
 go 1.27
 
 require (
-	github.com/godbus/dbus/v5 v5.2.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/goyek/goyek/v3 v3.0.1
 	github.com/goyek/x v0.4.0
 	github.com/stretchr/testify v1.12.1
