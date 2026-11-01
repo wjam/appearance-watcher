@@ -1,6 +1,6 @@
 module github.com/wjam/appearance-watcher/tools/whydeadcode
 
-go 1.26
+go 1.27.3
 
 tool github.com/aarzilli/whydeadcode
 
