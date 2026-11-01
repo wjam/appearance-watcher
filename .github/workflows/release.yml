@@ -1,0 +1,38 @@
+on:
+  push:
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+name: Perform release
+permissions: {}
+
+concurrency: # Avoid needlessly running the same workflow multiple times
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Perform release
+    runs-on: "macos-26"
+    permissions:
+      contents: write # Required to push the new release artefacts
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: '0'
+          persist-credentials: 'false'
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+          cache: 'false' # Avoid potential cache poisoning - https://docs.zizmor.sh/audits/#cache-poisoning
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          args: release --clean
+          version: v2.19.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
