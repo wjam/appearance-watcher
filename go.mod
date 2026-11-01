@@ -1,6 +1,6 @@
 module github.com/wjam/appearance-watcher
 
-go 1.27
+go 1.27.3
 
 require (
 	github.com/godbus/dbus/v5 v5.2.4
